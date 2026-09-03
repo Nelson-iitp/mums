@@ -1,17 +1,9 @@
 
-import math, json
+import math
 import matplotlib.pyplot as plt
 import numpy as np
 from gymnasium import Env
 from gymnasium.spaces import Box, MultiDiscrete, Dict as DictSpace
-
-
-def JLoad(path):
-    with open(path, 'r') as f: obj = json.load(f)
-    return obj
-
-def JSave(path, obj, indent=4):
-    with open(path, 'w') as f: json.dump(obj, f, indent=indent)
 
 class Gene:
     def __init__(self, comp_size_range, data_size_range, zero_prob, seed=None):
@@ -275,8 +267,8 @@ class MECWorld(Env):
                 else:
                     si = int(self.associations[ui, ci])
                     #print(self.txrates[ui, ci],  self.drag_history[si, 1])
-                    tx_time = (data_total) / (self.txrates[ui, ci] - self.txrates[ui, ci]*(self.drag_history[si, 1]))
-                    ex_time = (task_total) / (self.stations[si, SFields.exrate] * station_rate_decay[si] - self.drag_history[si, 0])
+                    tx_time = (data_total) / (self.txrates[ui, ci]*(1.0-self.drag_history[si, 1]))
+                    ex_time = (task_total) / (self.stations[si, SFields.exrate] * station_rate_decay[si] * (1.0 - self.drag_history[si, 0]))
                     offloaded[si, :] += (task_total, data_total) #<--- 
 
                 user_latencies[ui] = tx_time + ex_time
@@ -291,8 +283,8 @@ class MECWorld(Env):
                     si = int(self.associations[ui, ci])
                     #print(action.shape, action)
                     remote_ratio = action[ui, ci]
-                    tx_time = (data_total * remote_ratio) / (self.txrates[ui, ci] - self.txrates[ui, ci]*(self.drag_history[si, 1]))
-                    ex_time = (task_total * remote_ratio) / (self.stations[si, SFields.exrate] * station_rate_decay[si] - self.drag_history[si, 0])
+                    tx_time = (data_total * remote_ratio) / (self.txrates[ui, ci]*(1.0-self.drag_history[si, 1]))
+                    ex_time = (task_total * remote_ratio) / (self.stations[si, SFields.exrate] * station_rate_decay[si] * (1.0 - self.drag_history[si, 0]))
                     offloaded[si, :] += ((task_total * remote_ratio), (data_total * remote_ratio)) #<--- 
                     times.append(tx_time + ex_time)
                 # local action at the end
@@ -576,6 +568,7 @@ class EnvMaker:
     @staticmethod
     def Make(discrete, cfg:dict, freeze=False, seed=None):
         rng = np.random.default_rng(seed=seed)
+
         stations = [
             (x, y, cfg["station_exrate"])
             for x, y in __class__.grid_points(cfg["n_stations"], cfg["x_size"], cfg["y_size"])
@@ -615,20 +608,18 @@ class EnvMaker:
             mobs=mobs,
             greset=freeze,
             mreset=freeze,
-            **cfg["norm"],
+            # norm-kwargs
+            station_cpu_ref=cfg["station_exrate"],
+            user_cpu_ref=cfg["user_exrate"],
+            task_size_ref=cfg["task_size_range"][-1],
+            data_size_ref=cfg["data_size_range"][-1],
+            bandwidth_ref=cfg["user_txbw"],
+            tx_rate_ref=100000000.0,
         )
 
     @staticmethod
-    def MakeFromFile(discrete, json_file:str, freeze=False, seed=None):
-        return __class__.Make(discrete, JLoad(json_file), freeze=freeze, seed=seed)
-
-    @staticmethod
-    def MakeFromString(discrete, json_string:str, freeze=False, seed=None):
-        return __class__.Make(discrete, json.loads(json_string), freeze=freeze, seed=seed)
-
-    @staticmethod
     def MakeFromDataBase(discrete, name:str, freeze=False, seed=None):
-        return __class__.MakeFromString(discrete, __class__.WorldDataBase[name], freeze=freeze, seed=seed)
+        return __class__.Make(discrete, __class__.WorldDataBase[name], freeze=freeze, seed=seed)
 
     @staticmethod
     def ListDataBase(): return list(__class__.WorldDataBase.keys())
@@ -636,8 +627,7 @@ class EnvMaker:
     WorldDataBase = dict(
     # ---------------------------------------------
 
-    world1 = """
-    {
+    world1 = {
         "description": "5 km balanced world",
         "x_size": 5000.0,
         "y_size": 5000.0,
@@ -647,7 +637,7 @@ class EnvMaker:
         "horizon": 30,
         "log_base": 3,
         "station_exrate": 12000000000.0,
-        "user_exrate": 4000000000.0,
+        "user_exrate": 3400000000.0,
         "user_txbw": 19000000.0,
         "task_size_range": [
             1000000000.0,
@@ -660,19 +650,9 @@ class EnvMaker:
         "task_zero_prob": 0.02,
         "waypoint_count": 6,
         "mobility_speed": 75.0,
-        "norm": {
-            "station_cpu_ref": 12000000000.0,
-            "user_cpu_ref": 4000000000.0,
-            "task_size_ref": 4000000000.0,
-            "data_size_ref": 8000000.0,
-            "bandwidth_ref": 20000000.0,
-            "tx_rate_ref": 100000000.0
-        }
-    }
-    """,
+    },
 
-    world2 = """
-    {
+    world2 = {
         "description": "7.5 km larger world with more users",
         "x_size": 7500.0,
         "y_size": 7500.0,
@@ -682,7 +662,7 @@ class EnvMaker:
         "horizon": 30,
         "log_base": 4,
         "station_exrate": 16000000000.0,
-        "user_exrate":      3000000000.0,
+        "user_exrate":      2800000000.0,
         "user_txbw": 23000000.0,
         "task_size_range": [
             1500000000.0,
@@ -695,19 +675,9 @@ class EnvMaker:
         "task_zero_prob": 0.02,
         "waypoint_count": 7,
         "mobility_speed": 90.0,
-        "norm": {
-            "station_cpu_ref": 16000000000.0,
-            "user_cpu_ref": 5000000000.0,
-            "task_size_ref": 5000000000.0,
-            "data_size_ref": 12000000.0,
-            "bandwidth_ref": 25000000.0,
-            "tx_rate_ref": 100000000.0
-        }
-    }
-    """,
+    },
 
-    world3 = """
-    {
+    world3 = {
         "description": "10 km high-load world",
         "x_size": 10000.0,
         "y_size": 10000.0,
@@ -717,7 +687,7 @@ class EnvMaker:
         "horizon": 40,
         "log_base": 6,
         "station_exrate":   30000000000.0,
-        "user_exrate":      4700000000.0,
+        "user_exrate":      4350000000.0,
         "user_txbw": 32000000.0,
         "task_size_range": [
             2000000000.0,
@@ -730,19 +700,9 @@ class EnvMaker:
         "task_zero_prob": 0.01,
         "waypoint_count": 8,
         "mobility_speed": 110.0,
-        "norm": {
-            "station_cpu_ref": 20000000000.0,
-            "user_cpu_ref": 6000000000.0,
-            "task_size_ref": 7000000000.0,
-            "data_size_ref": 16000000.0,
-            "bandwidth_ref": 30000000.0,
-            "tx_rate_ref": 100000000.0
-        }
-    }
-    """,
+    },
 
-    world4 = """
-    {
+    world4 = {
         "description": "15 km sparse high-mobility world",
         "x_size": 15000.0,
         "y_size": 15000.0,
@@ -752,8 +712,8 @@ class EnvMaker:
         "horizon": 40,
         "log_base": 8,
         "station_exrate": 36000000000.0,
-        "user_exrate": 3500000000.0,
-        "user_txbw": 36000000.0,
+        "user_exrate": 3300000000.0,
+        "user_txbw": 30000000.0,
         "task_size_range": [
             2500000000.0,
             9000000000.0
@@ -765,16 +725,7 @@ class EnvMaker:
         "task_zero_prob": 0.01,
         "waypoint_count": 10,
         "mobility_speed": 140.0,
-        "norm": {
-            "station_cpu_ref": 24000000000.0,
-            "user_cpu_ref": 7000000000.0,
-            "task_size_ref": 9000000000.0,
-            "data_size_ref": 20000000.0,
-            "bandwidth_ref": 40000000.0,
-            "tx_rate_ref": 100000000.0
-        }
-    }
-    """,
+    },
 
     # ---------------------------------------------
     )
